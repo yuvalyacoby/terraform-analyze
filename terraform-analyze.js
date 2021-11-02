@@ -5,11 +5,19 @@ const chalk = require('chalk');
 const fs = require('fs');
 const pug = require('pug');
 const path = require('path');
+const commandLineArgs = require('command-line-args')
 
 const REPORT_DIR = './report';
 
 process.stdin.resume();
 process.stdin.setEncoding('utf8');
+
+const optionDefinitions = [
+    { name: 'withGraph', alias: 'g', type: Boolean },
+    { name: 'graphTimeLimit', alias: 't', type: Number, defaultOption: 10 }
+]
+
+const options = commandLineArgs(optionDefinitions)
 
 const parseTerraformTime = (tfTime) => {
     const timeMatch = tfTime.match(/(\d*\D)/g);
@@ -44,6 +52,27 @@ function ensureDirectoryExistence(filePath) {
     fs.mkdirSync(dirname);
 }
 
+const writeDataForGraph = modules => {
+    const modulesForTimeline = Object.values(modules)
+    .filter(({parsedTime}) => parsedTime > (options.graphTimeLimit || 10))
+    .map(({
+        moduleName,
+        parsedTime,
+        startTime,
+        endTime
+    }, id) => ({
+        id,
+        group: id,
+        title: moduleName,
+        start_time: startTime,
+        end_time: endTime,
+        parsedTime
+    }));
+    const groupsForTimeline = modulesForTimeline.map(({group, title}) => ({ id: group, title }));
+    fs.writeFileSync('./client/src/result.json', JSON.stringify(modulesForTimeline), 'utf8');
+    fs.writeFileSync('./client/src/groups.json', JSON.stringify(groupsForTimeline), 'utf8');
+}
+
 const analyzeTerraformOutput = (output) => {
     try {
         const modules = {}
@@ -52,6 +81,8 @@ const analyzeTerraformOutput = (output) => {
             .split('\n')
             .forEach((line, i) => {
                 const lineMatch = line.match(/((?:.\[[0-9]{1,3}m)*)([^:]*): ([^]*)((?:.\[[0-9]{1,3}m)*)/);
+                const timeWithBrackets = line.split(' ')[0];
+                const time = new Date(timeWithBrackets.substring(1, timeWithBrackets.length-1));
 
                 if (lineMatch) {
                     let [, startColor, moduleName, body, endColor] = lineMatch;
@@ -67,7 +98,8 @@ const analyzeTerraformOutput = (output) => {
                                 elapsedTime: '0s',
                                 parsedTime: 0,
                                 colorChalk: getTimeColorChalk(0),
-                                colorHtml: getTimeColorString(0)
+                                colorHtml: getTimeColorString(0),
+                                startTime: time
                             }
                         }
 
@@ -93,6 +125,7 @@ const analyzeTerraformOutput = (output) => {
                                 modules[moduleNameWithoutLocalExec].parsedTime = parseTerraformTime(elapsedTime);
                                 modules[moduleNameWithoutLocalExec].colorChalk = getTimeColorChalk(modules[moduleNameWithoutLocalExec].parsedTime);
                                 modules[moduleNameWithoutLocalExec].colorHtml = getTimeColorString(modules[moduleNameWithoutLocalExec].parsedTime);
+                                modules[moduleNameWithoutLocalExec].endTime = time
                             }
 
                             if(!modules[moduleNameWithoutLocalExec].body) modules[moduleNameWithoutLocalExec].body = [];
@@ -112,7 +145,9 @@ const analyzeTerraformOutput = (output) => {
         ];
         console.log('Top long resource creation:')
 
-
+        if (options.withGraph) {
+            writeDataForGraph(modules);
+        }
 
         fs.writeFileSync(path.join(REPORT_DIR,'index.html'), pug.renderFile(path.join(__dirname,'templates/table.pug'), {
             values: Object.entries(modules)

@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "chalk": "^4.1.0",
+    "command-line-args": "^5.2.0",
     "pug": "^3.0.0",
     "table": "^6.0.3"
   },
@@ -12,7 +13,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "files":  [
+  "files": [
     "terraform-analyze.js",
     "templates"
   ],
